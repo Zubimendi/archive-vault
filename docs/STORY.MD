@@ -31,6 +31,19 @@ saga, hash the email, log what you deleted) quietly violates the
 requirement it was meant to satisfy. Few engineers can talk about that
 from having built it, which is exactly why it's worth showing.
 
+## Medium Tags & Publishing Metadata
+- **Tags (5/5 for Medium publishing):**
+  - `Data Privacy`
+  - `GDPR`
+  - `System Design`
+  - `Software Architecture`
+  - `Cybersecurity`
+- **Secondary / Topic Tags:** `Backend`, `Python`, `Cryptography`, `Data Engineering`
+- **Subtitle:** Why GDPR Article 17 is a distributed systems problem wearing a legal hat — sagas without rollback, pseudo vs. true anonymization, and the proof-of-erasure paradox.
+- **Estimated Reading Time:** 6 min read
+- **Thumbnail / Hero Image:** `docs/assets/archive_vault_thumbnail.jpg`
+- **Target Publications:** *Better Programming*, *Towards Data Science*, *ITNEXT*, or *Level Up Coding*
+
 ## Interview talking points
 1. Lead with "erasure can't be compensated," then explain the
    quarantine → pivot → retriable structure and why quarantine exists

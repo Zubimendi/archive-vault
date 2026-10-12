@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  archivevault-postgres:
+    image: postgres:16-alpine
+    container_name: archivevault_postgres
+    environment:
+      POSTGRES_USER: archivevault
+      POSTGRES_PASSWORD: archivevault_secret
+      POSTGRES_DB: archivevault_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - archivevault_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archivevault -d archivevault_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  downstream-app-postgres:
+    image: postgres:16-alpine
+    container_name: downstream_app_postgres
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: appsecret
+      POSTGRES_DB: app_downstream_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - downstream_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d app_downstream_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  archivevault_pg_data:
+  downstream_pg_data:

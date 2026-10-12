@@ -1,0 +1,976 @@
+{
+  "info": {
+    "_postman_id": "a9c7b12d-98e3-4721-a3fc-archivevault01",
+    "name": "ArchiveVault API Collection",
+    "description": "Comprehensive test suite for ArchiveVault: A GDPR/CCPA data lifecycle and erasure engine featuring 3-phase sagas (quarantine -> pivot -> purge), envelope crypto-shredding, zero-PII hash-chained ledger, suppression restore-replay, and coverage drift monitoring.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "tenant_id",
+      "value": "11111111-1111-1111-1111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "subject_id",
+      "value": "22222222-2222-2222-2222-222222222222",
+      "type": "string"
+    },
+    {
+      "key": "data_map_version_id",
+      "value": "33333333-3333-3333-3333-333333333333",
+      "type": "string"
+    },
+    {
+      "key": "request_id",
+      "value": "44444444-4444-4444-4444-444444444444",
+      "type": "string"
+    },
+    {
+      "key": "hold_id",
+      "value": "55555555-5555-5555-5555-555555555555",
+      "type": "string"
+    },
+    {
+      "key": "finding_id",
+      "value": "66666666-6666-6666-6666-666666666666",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Health & System Checks",
+      "item": [
+        {
+          "name": "Service Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Verifies that ArchiveVault API is live and can communicate with PostgreSQL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Health status is OK', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('healthy');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Compliance & Coverage Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/coverage/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "coverage", "health"]
+            },
+            "description": "Fails if any high-severity unmapped PII schema drift findings exist."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Coverage check reports status', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('compliant');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Tenant Management",
+      "item": [
+        {
+          "name": "Onboard New Tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"FinTech Global Enterprise\",\n  \"regime_profile\": \"GDPR\",\n  \"kek_ref\": \"arn:aws:kms:eu-central-1:123456789012:key/mrk-archivevault-tenant-kek\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tenants"]
+            },
+            "description": "Creates a tenant, assigns regime rules (GDPR 30 days) and initializes KEK reference."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Tenant created (201)', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('tenant_id', json.id);",
+                  "    console.log('Saved tenant_id: ' + json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Tenant Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenant_id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trigger Tenant Offboarding (Full Shred)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirmation\": \"DESTROY_ALL_TENANT_DATA\",\n  \"reason\": \"Contract termination SLA reached\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenant_id}}/offboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}", "offboard"]
+            },
+            "description": "Destroys tenant KEK and triggers purge saga across all tenant datasets."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Data Map Registry",
+      "item": [
+        {
+          "name": "Upload & Validate Data Map",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"document\": {\n    \"stores\": [\n      {\n        \"id\": \"app-postgres\",\n        \"connector\": \"postgres\",\n        \"datasets\": [\n          {\n            \"name\": \"users\",\n            \"subject_key\": \"id\",\n            \"action\": \"ANONYMIZE\",\n            \"anonymize\": {\n              \"email\": \"NULLIFY\",\n              \"full_name\": \"NULLIFY\",\n              \"phone\": \"NULLIFY\"\n            }\n          },\n          {\n            \"name\": \"support_messages\",\n            \"subject_key\": \"author_id\",\n            \"action\": \"DELETE\"\n          },\n          {\n            \"name\": \"invoices\",\n            \"subject_key\": \"customer_id\",\n            \"action\": \"RETAIN_WITH_REASON\",\n            \"retention\": {\n              \"days\": 2555,\n              \"basis\": \"Tax compliance 7-year statutory requirement\"\n            },\n            \"on_expiry\": \"DELETE\"\n          }\n        ]\n      },\n      {\n        \"id\": \"analytics-warehouse\",\n        \"connector\": \"postgres\",\n        \"datasets\": [\n          {\n            \"name\": \"events\",\n            \"subject_key\": \"user_id\",\n            \"action\": \"CRYPTO_SHRED\"\n          }\n        ]\n      },\n      {\n        \"id\": \"email-vendor\",\n        \"connector\": \"webhook\",\n        \"datasets\": [\n          {\n            \"name\": \"contacts\",\n            \"subject_key\": \"email\",\n            \"action\": \"DELETE\"\n          }\n        ]\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/data-maps",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "data-maps"]
+            },
+            "description": "Uploads and validates a declarative data map. Rejects any invalid anonymization strategies."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Data Map created (201)', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('data_map_version_id', json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Publish Data Map (Make Active & Immutable)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/data-maps/{{data_map_version_id}}/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "data-maps", "{{data_map_version_id}}", "publish"]
+            },
+            "description": "Publishes version. After publishing, database trigger blocks any updates/deletions."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Published successfully (200)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Active Data Map",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/data-maps/active",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "data-maps", "active"]
+            }
+          }
+        },
+        {
+          "name": "Reject Invalid Anonymization Hash (Negative Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 99,\n  \"document\": {\n    \"stores\": [\n      {\n        \"id\": \"bad-store\",\n        \"connector\": \"postgres\",\n        \"datasets\": [\n          {\n            \"name\": \"leads\",\n            \"subject_key\": \"id\",\n            \"action\": \"ANONYMIZE\",\n            \"anonymize\": {\n              \"email\": \"SHA256_HASH\"\n            }\n          }\n        ]\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/data-maps",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "data-maps"]
+            },
+            "description": "Must be rejected: Hashing is pseudonymization, not anonymization under GDPR."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Rejected with 422 Unprocessable Entity or 400', function () {",
+                  "    pm.expect([400, 422]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Error mentions unsupported strategy', function () {",
+                  "    var text = pm.response.text();",
+                  "    pm.expect(text.toLowerCase()).to.include('anonymize');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Subject Registration & Crypto Keys",
+      "item": [
+        {
+          "name": "Register Subject with Wrapped DEK",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier_type\": \"EMAIL\",\n  \"identifier_value\": \"jane.doe@enterprise.io\",\n  \"pepper_context\": \"production-user\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subjects",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "subjects"]
+            },
+            "description": "Generates per-subject DEK, wraps under tenant KEK, returns opaque subject UUID. Note: identifier_value is NOT stored in DB."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Subject registered (201)', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "if (json.subject_id) {",
+                  "    pm.collectionVariables.set('subject_id', json.subject_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Subject Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subjects/{{subject_id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "subjects", "{{subject_id}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('No direct PII exposed in response', function () {",
+                  "    var text = pm.response.text();",
+                  "    pm.expect(text).to.not.include('jane.doe@enterprise.io');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - Erasure Request Intake & Planning",
+      "item": [
+        {
+          "name": "Submit Subject Erasure Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject_id\": \"{{subject_id}}\",\n  \"trigger\": \"SUBJECT_REQUEST\",\n  \"regime\": \"GDPR\",\n  \"quarantine_days\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests"]
+            },
+            "description": "Freezes cutoff_at, computes due_at (30 days), pins active data map, plans quarantine/purge/propagate steps."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Request Accepted (202 or 201)', function () {",
+                  "    pm.expect([200, 201, 202]).to.include(pm.response.code);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('request_id', json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deduplication Check (Negative Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject_id\": \"{{subject_id}}\",\n  \"trigger\": \"SUBJECT_REQUEST\",\n  \"regime\": \"GDPR\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests"]
+            },
+            "description": "Rejects duplicate open erasure requests for the same subject with 409 Conflict."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Duplicate request rejected (409 Conflict)', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Erasure Request Details & Saga Steps",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.test('Contains frozen cutoff_at and steps', function () {",
+                  "    pm.expect(json).to.have.property('cutoff_at');",
+                  "    pm.expect(json).to.have.property('steps');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Saga Lifecycle & Quarantine Pivot",
+      "item": [
+        {
+          "name": "Cancel Request Pre-Pivot (Compensable Quarantine)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancellation_reason\": \"User confirmed identity theft / forged deletion request\",\n  \"actor\": \"security-incident-response\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "cancel"]
+            },
+            "description": "Lifts quarantine and restores access. Valid ONLY prior to the pivot."
+          }
+        },
+        {
+          "name": "Force Pivot to Purge (Point of No Return)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bypass_quarantine_window\": true,\n  \"reason\": \"Simulate quarantine window expiration in test harness\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/pivot",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "pivot"]
+            },
+            "description": "Crosses the point of no return. After this call, state transitions to PURGING."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Pivot executed (200)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Attempt Post-Pivot Cancel (Negative Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancellation_reason\": \"Late cancellation attempt\",\n  \"actor\": \"user\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "cancel"]
+            },
+            "description": "Must fail with 409 Conflict: Cannot compensate once past the pivot."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Post-pivot cancel rejected with 409', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Execute Next Saga Step",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/execute-step",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "execute-step"]
+            },
+            "description": "Drives the forward-only purge steps (DELETE, ANONYMIZE, CRYPTO_SHRED) through the QueueLine worker harness."
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Verification & Zero-PII Certificate",
+      "item": [
+        {
+          "name": "Trigger Independent Verifier Scan",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "verify"]
+            },
+            "description": "Independent read path re-queries all stores and verifies encrypted DEK decryption failure."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Verification completed', function () {",
+                  "    pm.expect([200, 202]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Generate Zero-PII Erasure Certificate",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/certificate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "certificate"]
+            },
+            "description": "Returns signed proof of erasure containing no user PII, referencing only opaque subject UUID."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.text();",
+                  "pm.test('Zero-PII Guarantee: No raw personal data in certificate', function () {",
+                  "    pm.expect(body).to.not.include('@');",
+                  "    pm.expect(body).to.not.include('jane');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query Erasure Ledger Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ledger?request_id={{request_id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ledger"],
+              "query": [
+                { "key": "request_id", "value": "{{request_id}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify Ledger Hash Chain Integrity",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ledger/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ledger", "verify"]
+            },
+            "description": "Verifies that every block in the ledger correctly hashes previous blocks without tampering."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Hash chain valid', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.valid).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 - Legal Holds",
+      "item": [
+        {
+          "name": "Place Legal Hold on Subject",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject_id\": \"{{subject_id}}\",\n  \"reason\": \"Subpoena Case #94821 - Federal Trade Commission\",\n  \"placed_by\": \"counsel@enterprise.com\",\n  \"expires_in_days\": 180\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/holds",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "holds"]
+            },
+            "description": "Freezes any in-flight or future erasure requests into HELD state."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Hold placed (201)', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('hold_id', json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Active Legal Holds",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/holds?subject_id={{subject_id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "holds"],
+              "query": [
+                { "key": "subject_id", "value": "{{subject_id}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Release Legal Hold",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"released_by\": \"counsel@enterprise.com\",\n  \"release_reason\": \"Litigation resolved with settlement dismissals\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/holds/{{hold_id}}/release",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "holds", "{{hold_id}}", "release"]
+            },
+            "description": "Releases hold and resumes frozen erasure requests."
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Suppression Ledger & Restore-Replay",
+      "item": [
+        {
+          "name": "Check Subject Suppression HMAC",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"jane.doe@enterprise.io\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppression/check",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppression", "check"]
+            },
+            "description": "Hashes the candidate identifier with secret pepper and checks if suppressed."
+          }
+        },
+        {
+          "name": "Trigger Restore-Replay Scan",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target_store_id\": \"app-postgres\",\n  \"notes\": \"Re-evaluating restored backup snapshot from 2026-09-01\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppression/restore-replay",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppression", "restore-replay"]
+            },
+            "description": "Scans restored database and automatically re-erases any reappearing suppressed subjects."
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Coverage Drift Monitor",
+      "item": [
+        {
+          "name": "Trigger Schema Drift Introspection",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"store_id\": \"app-postgres\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/coverage/scan",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "coverage", "scan"]
+            },
+            "description": "Introspects information_schema and diffs against the active Data Map."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Scan completed', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Coverage Findings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/coverage/findings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "coverage", "findings"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (Array.isArray(json) && json.length > 0) {",
+                  "    pm.collectionVariables.set('finding_id', json[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resolve Coverage Finding",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolution\": \"NOT_PERSONAL_DATA\",\n  \"reviewer\": \"compliance-lead@enterprise.com\",\n  \"notes\": \"Column contains internal non-identifying telemetry metrics\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/coverage/findings/{{finding_id}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "coverage", "findings", "{{finding_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Deadline Escalations & Extensions",
+      "item": [
+        {
+          "name": "Trigger Daily Deadline Sweep",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/deadlines/sweep",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "deadlines", "sweep"]
+            },
+            "description": "Evaluates T-14, T-7 notifications and marks AT_RISK or OVERDUE requests."
+          }
+        },
+        {
+          "name": "Request Lawful Deadline Extension",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"extension_days\": 30,\n  \"legal_basis\": \"GDPR Article 12(3) Complexity Extension\",\n  \"subject_notified\": true,\n  \"authorized_by\": \"dpo@enterprise.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/erasure-requests/{{request_id}}/extend",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "erasure-requests", "{{request_id}}", "extend"]
+            },
+            "description": "Applies explicit documented extension. Quiet modification of due_at is rejected."
+          }
+        }
+      ]
+    }
+  ]
+}
